@@ -1,0 +1,6 @@
+{
+  "name": "NearSend",
+  "description": "Cross-platform peer-to-peer file and text transfer for Android and Windows with LocalSend-style discovery, WebRTC streaming, and QR pairing.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

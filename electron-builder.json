@@ -1,0 +1,38 @@
+{
+  "appId": "com.nearsend.desktop",
+  "productName": "NearSend",
+  "directories": {
+    "output": "release"
+  },
+  "extraMetadata": {
+    "main": "electron/main.cjs"
+  },
+  "files": [
+    "dist/**/*",
+    "electron/**/*",
+    "package.json",
+    "!android/**",
+    "!gradle/**",
+    "!release/**"
+  ],
+  "win": {
+    "target": [
+      {
+        "target": "portable",
+        "arch": ["x64"]
+      },
+      {
+        "target": "nsis",
+        "arch": ["x64"]
+      }
+    ]
+  },
+  "portable": {
+    "artifactName": "NearSend-Portable.exe"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "artifactName": "NearSend-Setup.exe"
+  }
+}

@@ -1,0 +1,62 @@
+import org.apache.tools.ant.taskdefs.condition.Os
+
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.nearsend.app'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "com.nearsend.app"
+        minSdk 24
+        targetSdk 35
+        versionCode 1
+        versionName "1.0.0"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+def npmCmd = Os.isFamily(Os.FAMILY_WINDOWS) ? 'npm.cmd' : 'npm'
+
+tasks.register('installWebDependencies', Exec) {
+    workingDir rootDir
+    onlyIf { !file("${rootDir}/node_modules").exists() }
+    commandLine npmCmd, 'install'
+}
+
+tasks.register('buildWebBundle', Exec) {
+    dependsOn 'installWebDependencies'
+    workingDir rootDir
+    commandLine npmCmd, 'run', 'build'
+}
+
+tasks.register('prepareWebAssets', Copy) {
+    dependsOn 'buildWebBundle'
+    def targetDir = file("${projectDir}/src/main/assets/www")
+    doFirst {
+        delete targetDir
+    }
+    from "${rootDir}/dist"
+    into targetDir
+}
+
+preBuild.dependsOn(prepareWebAssets)
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'androidx.core:core:1.13.1'
+    implementation 'androidx.webkit:webkit:1.11.1'
+}
