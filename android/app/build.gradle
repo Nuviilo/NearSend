@@ -6,12 +6,12 @@ plugins {
 
 android {
     namespace 'com.nearsend.app'
-    compileSdk 35
+    compileSdk 34
 
     defaultConfig {
         applicationId "com.nearsend.app"
         minSdk 24
-        targetSdk 35
+        targetSdk 34
         versionCode 1
         versionName "1.0.0"
     }
@@ -29,18 +29,26 @@ android {
     }
 }
 
-def npmCmd = Os.isFamily(Os.FAMILY_WINDOWS) ? 'npm.cmd' : 'npm'
+def isWindows = Os.isFamily(Os.FAMILY_WINDOWS)
 
 tasks.register('installWebDependencies', Exec) {
     workingDir rootDir
-    onlyIf { !file("${rootDir}/node_modules").exists() }
-    commandLine npmCmd, 'install'
+    onlyIf { !file("${rootDir}/node_modules/vite/package.json").exists() }
+    if (isWindows) {
+        commandLine 'cmd', '/c', 'npm', 'install', '--legacy-peer-deps'
+    } else {
+        commandLine 'npm', 'install', '--legacy-peer-deps'
+    }
 }
 
 tasks.register('buildWebBundle', Exec) {
     dependsOn 'installWebDependencies'
     workingDir rootDir
-    commandLine npmCmd, 'run', 'build'
+    if (isWindows) {
+        commandLine 'cmd', '/c', 'npm', 'run', 'build'
+    } else {
+        commandLine 'npm', 'run', 'build'
+    }
 }
 
 tasks.register('prepareWebAssets', Copy) {

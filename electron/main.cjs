@@ -257,7 +257,7 @@ function createServerAndListen() {
 
     const distDir = path.join(__dirname, '..', 'dist');
     expressApp.use(express.static(distDir));
-    expressApp.get('/{*splat}', (_req, res) => {
+    expressApp.get('*', (_req, res) => {
       res.sendFile(path.join(distDir, 'index.html'));
     });
 

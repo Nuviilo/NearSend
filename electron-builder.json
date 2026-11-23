@@ -5,7 +5,9 @@
     "output": "release"
   },
   "extraMetadata": {
-    "main": "electron/main.cjs"
+    "main": "electron/main.cjs",
+    "description": "Cross-platform peer-to-peer file and text transfer for Android and Windows.",
+    "author": "NearSend"
   },
   "files": [
     "dist/**/*",
@@ -16,6 +18,7 @@
     "!release/**"
   ],
   "win": {
+    "signAndEditExecutable": false,
     "target": [
       {
         "target": "portable",

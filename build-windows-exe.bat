@@ -2,6 +2,8 @@
 setlocal EnableExtensions
 title NearSend Windows EXE Builder
 
+set CSC_IDENTITY_AUTO_DISCOVERY=false
+
 echo ============================================
 echo   NearSend - Automatic Windows .EXE Builder
 echo ============================================
@@ -23,7 +25,7 @@ if errorlevel 1 (
 )
 
 echo [1/4] Installing application dependencies...
-call npm install
+call npm install --legacy-peer-deps
 if errorlevel 1 (
   echo [ERROR] npm install failed.
   pause
@@ -42,14 +44,14 @@ if errorlevel 1 (
 echo.
 echo [3/4] Ensuring Electron packaging tools are installed...
 if not exist "node_modules\electron\package.json" (
-  call npm install --no-save electron electron-builder
+  call npm install --no-save --legacy-peer-deps electron electron-builder
   if errorlevel 1 (
     echo [ERROR] Failed to install Electron / electron-builder.
     pause
     exit /b 1
   )
 ) else if not exist "node_modules\electron-builder\package.json" (
-  call npm install --no-save electron electron-builder
+  call npm install --no-save --legacy-peer-deps electron electron-builder
   if errorlevel 1 (
     echo [ERROR] Failed to install electron-builder.
     pause
