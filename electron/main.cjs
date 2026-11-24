@@ -380,7 +380,12 @@ async function createWindow() {
     minWidth: 390,
     minHeight: 620,
     title: 'NearSend',
-    icon: path.join(__dirname, '..', 'build', 'icon.png'),
+    icon: path.join(
+      __dirname,
+      '..',
+      'build',
+      process.platform === 'win32' ? 'icon.ico' : 'icon.png',
+    ),
     autoHideMenuBar: true,
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#090C10' : '#F6F8FA',
     webPreferences: {
@@ -394,6 +399,10 @@ async function createWindow() {
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
+}
+
+if (process.platform === 'win32') {
+  app.setAppUserModelId('com.nearsend.desktop');
 }
 
 app.whenReady().then(createWindow);

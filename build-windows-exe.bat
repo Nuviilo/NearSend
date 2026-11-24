@@ -61,6 +61,7 @@ if not exist "node_modules\electron\package.json" (
 
 echo.
 echo [4/4] Packaging Windows .EXE (Portable + Installer)...
+if exist "release\win-unpacked" rmdir /s /q "release\win-unpacked"
 call npx electron-builder --win --x64 --config electron-builder.json
 if errorlevel 1 (
   echo [ERROR] Packaging .exe failed.

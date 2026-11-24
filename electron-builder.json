@@ -1,6 +1,7 @@
 {
   "appId": "com.nearsend.desktop",
   "productName": "NearSend",
+  "icon": "build/icon.ico",
   "directories": {
     "output": "release"
   },
@@ -20,7 +21,7 @@
   ],
   "win": {
     "icon": "build/icon.ico",
-    "signAndEditExecutable": false,
+    "signExecutable": false,
     "target": [
       {
         "target": "portable",
@@ -40,6 +41,7 @@
     "allowToChangeInstallationDirectory": true,
     "installerIcon": "build/icon.ico",
     "uninstallerIcon": "build/icon.ico",
+    "installerHeaderIcon": "build/icon.ico",
     "artifactName": "NearSend-Setup.exe"
   }
 }
