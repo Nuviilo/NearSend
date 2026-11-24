@@ -1,9 +1,10 @@
 {
   "appId": "com.nearsend.desktop",
   "productName": "NearSend",
-  "icon": "build/icon.ico",
+  "icon": "electron/icons/icon.ico",
   "directories": {
-    "output": "release"
+    "output": "release",
+    "buildResources": "electron/icons"
   },
   "extraMetadata": {
     "main": "electron/main.cjs",
@@ -13,14 +14,13 @@
   "files": [
     "dist/**/*",
     "electron/**/*",
-    "build/**/*",
     "package.json",
     "!android/**",
     "!gradle/**",
     "!release/**"
   ],
   "win": {
-    "icon": "build/icon.ico",
+    "icon": "electron/icons/icon.ico",
     "signExecutable": false,
     "target": [
       {
@@ -39,9 +39,9 @@
   "nsis": {
     "oneClick": false,
     "allowToChangeInstallationDirectory": true,
-    "installerIcon": "build/icon.ico",
-    "uninstallerIcon": "build/icon.ico",
-    "installerHeaderIcon": "build/icon.ico",
+    "installerIcon": "electron/icons/icon.ico",
+    "uninstallerIcon": "electron/icons/icon.ico",
+    "installerHeaderIcon": "electron/icons/icon.ico",
     "artifactName": "NearSend-Setup.exe"
   }
 }

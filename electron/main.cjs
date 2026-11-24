@@ -382,8 +382,7 @@ async function createWindow() {
     title: 'NearSend',
     icon: path.join(
       __dirname,
-      '..',
-      'build',
+      'icons',
       process.platform === 'win32' ? 'icon.ico' : 'icon.png',
     ),
     autoHideMenuBar: true,
