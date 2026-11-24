@@ -1,3 +1,4 @@
+import dgram from 'dgram';
 import express from 'express';
 import http from 'http';
 import os from 'os';
@@ -9,6 +10,7 @@ interface RegisteredPeer {
   id: string;
   ws: WebSocket;
   clientIp: string;
+  discoveryGroup: string;
   alias: string;
   deviceModel: string;
   deviceType: 'desktop' | 'mobile' | 'tablet';
@@ -17,7 +19,14 @@ interface RegisteredPeer {
   quickSave: 'off' | 'ask' | 'all';
 }
 
+interface AliveWebSocket extends WebSocket {
+  isAlive?: boolean;
+}
+
 const PORT = 3000;
+const MULTICAST_ADDR = '224.0.0.167';
+const MULTICAST_PORT = 53317;
+
 const app = express();
 app.use(express.json({ limit: '1mb' }));
 
@@ -46,6 +55,22 @@ function extractClientIp(req: http.IncomingMessage): string {
   return ip;
 }
 
+function isPrivateOrLoopbackIp(ip: string): boolean {
+  if (!ip) return true;
+  if (ip === '127.0.0.1' || ip === '::1' || ip.startsWith('127.')) return true;
+  if (ip.startsWith('10.') || ip.startsWith('192.168.') || ip.startsWith('169.254.')) return true;
+  if (ip.startsWith('172.')) {
+    const second = Number(ip.split('.')[1]);
+    if (second >= 16 && second <= 31) return true;
+  }
+  const lower = ip.toLowerCase();
+  return lower.startsWith('fe80:') || lower.startsWith('fc') || lower.startsWith('fd');
+}
+
+function getDiscoveryGroup(ip: string): string {
+  return isPrivateOrLoopbackIp(ip) ? 'local-lan' : ip;
+}
+
 function sendJson(ws: WebSocket, payload: unknown): void {
   if (ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(payload));
@@ -55,7 +80,10 @@ function sendJson(ws: WebSocket, payload: unknown): void {
 function broadcastPeersFor(targetPeer: RegisteredPeer): void {
   const visiblePeers: Array<Record<string, unknown>> = [];
   for (const candidate of peers.values()) {
-    if (candidate.id !== targetPeer.id && candidate.clientIp === targetPeer.clientIp) {
+    if (
+      candidate.id !== targetPeer.id &&
+      candidate.discoveryGroup === targetPeer.discoveryGroup
+    ) {
       visiblePeers.push({
         id: candidate.id,
         alias: candidate.alias,
@@ -98,10 +126,75 @@ function decodeBinaryFrame(data: Buffer): { header: Record<string, unknown>; pay
   return { header, payload };
 }
 
-wss.on('connection', (ws, req) => {
+function startMulticastBeacon(): void {
+  try {
+    const socket = dgram.createSocket({ type: 'udp4', reuseAddr: true });
+    socket.on('error', () => {});
+    socket.bind(() => {
+      try {
+        socket.setMulticastTTL(128);
+        socket.setBroadcast(true);
+      } catch {
+        // ignore
+      }
+      const payload = Buffer.from(
+        JSON.stringify({ app: 'NearSend', port: PORT, host: os.hostname() }),
+        'utf8',
+      );
+      const sendBeacon = () => {
+        try {
+          socket.send(payload, 0, payload.length, MULTICAST_PORT, MULTICAST_ADDR);
+        } catch {
+          // ignore
+        }
+      };
+      sendBeacon();
+      setInterval(sendBeacon, 1500);
+    });
+  } catch {
+    // ignore in restricted environments
+  }
+}
+
+// Fast dead-peer pruning every 10 seconds
+setInterval(() => {
+  let pruned = false;
+  for (const rawClient of wss.clients) {
+    const client = rawClient as AliveWebSocket;
+    if (client.isAlive === false) {
+      const peerId = wsToPeerId.get(client);
+      if (peerId) {
+        wsToPeerId.delete(client);
+        const current = peers.get(peerId);
+        if (current && current.ws === client) {
+          peers.delete(peerId);
+          pruned = true;
+        }
+      }
+      client.terminate();
+      continue;
+    }
+    client.isAlive = false;
+    client.ping();
+  }
+  if (pruned) {
+    broadcastAllRelevantPeers();
+  }
+}, 10000);
+
+wss.on('connection', (rawWs, req) => {
+  const ws = rawWs as AliveWebSocket;
   const clientIp = extractClientIp(req);
+  const discoveryGroup = getDiscoveryGroup(clientIp);
+  ws.isAlive = true;
+
+  ws.on('pong', () => {
+    ws.isAlive = true;
+  });
 
   ws.on('message', (raw, isBinary) => {
+    ws.isAlive = true;
+
     if (isBinary) {
       const buf = Buffer.isBuffer(raw) ? raw : Buffer.from(raw as ArrayBuffer);
       try {
@@ -140,6 +233,11 @@ wss.on('connection', (ws, req) => {
 
     const type = String(msg.type || '');
 
+    if (type === 'ping') {
+      sendJson(ws, { type: 'pong' });
+      return;
+    }
+
     if (type === 'device:register') {
       const id = String(msg.id || '').trim();
       if (!id) return;
@@ -148,6 +246,7 @@ wss.on('connection', (ws, req) => {
         id,
         ws,
         clientIp,
+        discoveryGroup,
         alias: String(msg.alias || 'Unknown Device').slice(0, 48),
         deviceModel: String(msg.deviceModel || 'Browser').slice(0, 48),
         deviceType:
@@ -163,7 +262,12 @@ wss.on('connection', (ws, req) => {
       sendJson(ws, {
         type: 'device:registered',
         id: peer.id,
-        clientIpMasked: clientIp.includes('.') ? clientIp.split('.').slice(0, 3).join('.') + '.*' : 'local',
+        clientIpMasked:
+          discoveryGroup === 'local-lan'
+            ? 'local-lan'
+            : clientIp.includes('.')
+              ? clientIp.split('.').slice(0, 3).join('.') + '.*'
+              : 'local',
       });
       broadcastAllRelevantPeers();
       return;
@@ -285,6 +389,7 @@ async function startServer() {
 
   server.listen(PORT, '0.0.0.0', () => {
     console.log(`NearSend server listening on http://0.0.0.0:${PORT}`);
+    startMulticastBeacon();
   });
 }
 

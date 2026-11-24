@@ -58,6 +58,7 @@ declare global {
       setDarkTheme?: (isDark: boolean) => void;
       saveBase64File?: (base64Data: string, fileName: string, mimeType: string) => void;
     };
+    onNearSendLanServer?: (url: string) => void;
   }
 }
 
@@ -1194,8 +1195,40 @@ export function useNearSend() {
 
     connect();
 
+    const triggerFastDiscover = () => {
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ type: 'device:discover' }));
+      }
+    };
+
+    const onVisibilityChange = () => {
+      if (!document.hidden) triggerFastDiscover();
+    };
+
+    window.addEventListener('focus', triggerFastDiscover);
+    window.addEventListener('online', triggerFastDiscover);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
+    window.onNearSendLanServer = (lanUrl: string) => {
+      if (!lanUrl) return;
+      if (settingsRef.current.serverUrl !== lanUrl) {
+        updateSettings({ serverUrl: lanUrl });
+      }
+    };
+
+    const keepAliveTimer = window.setInterval(() => {
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ type: 'ping' }));
+      }
+    }, 15000);
+
     return () => {
       unmounted = true;
+      window.clearInterval(keepAliveTimer);
+      window.removeEventListener('focus', triggerFastDiscover);
+      window.removeEventListener('online', triggerFastDiscover);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      delete window.onNearSendLanServer;
       if (reconnectTimerRef.current) {
         window.clearTimeout(reconnectTimerRef.current);
       }
@@ -1215,6 +1248,7 @@ export function useNearSend() {
     settings.serverUrl,
     setupReceiverPeerConnection,
     updateActiveTransfer,
+    updateSettings,
   ]);
 
   return {

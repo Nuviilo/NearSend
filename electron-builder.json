@@ -12,12 +12,14 @@
   "files": [
     "dist/**/*",
     "electron/**/*",
+    "build/**/*",
     "package.json",
     "!android/**",
     "!gradle/**",
     "!release/**"
   ],
   "win": {
+    "icon": "build/icon.ico",
     "signAndEditExecutable": false,
     "target": [
       {
@@ -36,6 +38,8 @@
   "nsis": {
     "oneClick": false,
     "allowToChangeInstallationDirectory": true,
+    "installerIcon": "build/icon.ico",
+    "uninstallerIcon": "build/icon.ico",
     "artifactName": "NearSend-Setup.exe"
   }
 }

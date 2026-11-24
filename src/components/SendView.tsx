@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   FilePlus2,
   FolderOpen,
@@ -43,6 +43,18 @@ export function SendView({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mediaInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    onRescanPeers();
+  }, [onRescanPeers]);
+
+  useEffect(() => {
+    if (peers.length > 0) return;
+    const id = window.setInterval(() => {
+      onRescanPeers();
+    }, 4000);
+    return () => window.clearInterval(id);
+  }, [peers.length, onRescanPeers]);
   const directPeerInputRef = useRef<HTMLInputElement>(null);
   const directPeerRef = useRef<PeerDevice | null>(null);
 

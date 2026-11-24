@@ -4,10 +4,12 @@ import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.ContentResolver;
 import android.content.ContentValues;
+import android.content.Context;
 import android.content.Intent;
 import android.content.res.Configuration;
 import android.graphics.Color;
 import android.net.Uri;
+import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
@@ -33,17 +35,28 @@ import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
 import androidx.webkit.WebViewAssetLoader;
 
+import org.json.JSONObject;
+
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.OutputStream;
+import java.net.DatagramPacket;
+import java.net.InetAddress;
+import java.net.MulticastSocket;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
 public class MainActivity extends AppCompatActivity {
 
+    private static final String MULTICAST_GROUP = "224.0.0.167";
+    private static final int MULTICAST_PORT = 53317;
+
     private WebView webView;
     private ValueCallback<Uri[]> filePathCallback;
     private ActivityResultLauncher<Intent> fileChooserLauncher;
+    private volatile boolean running = true;
+    private Thread multicastThread;
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -133,6 +146,8 @@ public class MainActivity extends AppCompatActivity {
         webView.addJavascriptInterface(new AndroidBridge(), "AndroidBridge");
         webView.loadUrl("https://appassets.androidplatform.net/assets/www/index.html");
 
+        startLanMulticastListener();
+
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override
             public void handleOnBackPressed() {
@@ -144,6 +159,80 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
         });
+    }
+
+    @Override
+    protected void onDestroy() {
+        running = false;
+        if (multicastThread != null) {
+            multicastThread.interrupt();
+        }
+        super.onDestroy();
+    }
+
+    private void startLanMulticastListener() {
+        multicastThread = new Thread(() -> {
+            WifiManager.MulticastLock lock = null;
+            MulticastSocket socket = null;
+            try {
+                WifiManager wifi = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+                if (wifi != null) {
+                    lock = wifi.createMulticastLock("NearSendDiscovery");
+                    lock.setReferenceCounted(true);
+                    lock.acquire();
+                }
+                InetAddress group = InetAddress.getByName(MULTICAST_GROUP);
+                socket = new MulticastSocket(MULTICAST_PORT);
+                socket.setSoTimeout(3000);
+                socket.joinGroup(group);
+
+                byte[] buf = new byte[1024];
+                String lastNotifiedUrl = "";
+                while (running) {
+                    try {
+                        DatagramPacket packet = new DatagramPacket(buf, buf.length);
+                        socket.receive(packet);
+                        String raw = new String(packet.getData(), 0, packet.getLength(), StandardCharsets.UTF_8);
+                        JSONObject json = new JSONObject(raw);
+                        if ("NearSend".equals(json.optString("app"))) {
+                            int port = json.optInt("port", 3000);
+                            String senderIp = packet.getAddress().getHostAddress();
+                            if (senderIp != null && !senderIp.isEmpty()) {
+                                String lanUrl = "http://" + senderIp + ":" + port;
+                                if (!lanUrl.equals(lastNotifiedUrl)) {
+                                    lastNotifiedUrl = lanUrl;
+                                    final String safeUrl = lanUrl.replace("'", "");
+                                    runOnUiThread(() -> {
+                                        if (webView != null) {
+                                            webView.evaluateJavascript(
+                                                    "window.onNearSendLanServer && window.onNearSendLanServer('" + safeUrl + "');",
+                                                    null
+                                            );
+                                        }
+                                    });
+                                }
+                            }
+                        }
+                    } catch (java.net.SocketTimeoutException ignored) {
+                        // loop while running
+                    }
+                }
+            } catch (Exception ignored) {
+                // fallback to configured server URL
+            } finally {
+                if (socket != null) {
+                    try {
+                        socket.close();
+                    } catch (Exception ignored) {}
+                }
+                if (lock != null && lock.isHeld()) {
+                    try {
+                        lock.release();
+                    } catch (Exception ignored) {}
+                }
+            }
+        }, "NearSendMulticast");
+        multicastThread.start();
     }
 
     private void applySystemBarTheme(boolean isDark) {

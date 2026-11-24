@@ -1,15 +1,69 @@
 const { app, BrowserWindow, nativeTheme } = require('electron');
+const dgram = require('dgram');
 const express = require('express');
 const http = require('http');
 const os = require('os');
 const path = require('path');
 const { WebSocketServer, WebSocket } = require('ws');
 
+const MULTICAST_ADDR = '224.0.0.167';
+const MULTICAST_PORT = 53317;
+
 let mainWindow = null;
 let httpServer = null;
+let beaconTimer = null;
+let heartbeatTimer = null;
+let udpSocket = null;
+
+function isPrivateOrLoopbackIp(ip) {
+  if (!ip) return true;
+  if (ip === '127.0.0.1' || ip === '::1' || ip.startsWith('127.')) return true;
+  if (ip.startsWith('10.') || ip.startsWith('192.168.') || ip.startsWith('169.254.')) return true;
+  if (ip.startsWith('172.')) {
+    const second = Number(ip.split('.')[1]);
+    if (second >= 16 && second <= 31) return true;
+  }
+  const lower = ip.toLowerCase();
+  return lower.startsWith('fe80:') || lower.startsWith('fc') || lower.startsWith('fd');
+}
+
+function getDiscoveryGroup(ip) {
+  return isPrivateOrLoopbackIp(ip) ? 'local-lan' : ip;
+}
+
+function startMulticastBeacon(port) {
+  try {
+    const socket = dgram.createSocket({ type: 'udp4', reuseAddr: true });
+    udpSocket = socket;
+    socket.on('error', () => {});
+    socket.bind(() => {
+      try {
+        socket.setMulticastTTL(128);
+        socket.setBroadcast(true);
+      } catch {
+        // ignore
+      }
+      const payload = Buffer.from(
+        JSON.stringify({ app: 'NearSend', port, host: os.hostname() }),
+        'utf8',
+      );
+      const sendBeacon = () => {
+        try {
+          socket.send(payload, 0, payload.length, MULTICAST_PORT, MULTICAST_ADDR);
+        } catch {
+          // ignore
+        }
+      };
+      sendBeacon();
+      beaconTimer = setInterval(sendBeacon, 1500);
+    });
+  } catch {
+    // ignore UDP errors
+  }
+}
 
 function createServerAndListen() {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     const expressApp = express();
     expressApp.use(express.json({ limit: '1mb' }));
 
@@ -43,7 +97,10 @@ function createServerAndListen() {
     function broadcastPeersFor(targetPeer) {
       const visiblePeers = [];
       for (const candidate of peers.values()) {
-        if (candidate.id !== targetPeer.id && candidate.clientIp === targetPeer.clientIp) {
+        if (
+          candidate.id !== targetPeer.id &&
+          candidate.discoveryGroup === targetPeer.discoveryGroup
+        ) {
           visiblePeers.push({
             id: candidate.id,
             alias: candidate.alias,
@@ -83,10 +140,38 @@ function createServerAndListen() {
       return { header, payload };
     }
 
+    heartbeatTimer = setInterval(() => {
+      let pruned = false;
+      for (const ws of wss.clients) {
+        if (ws.isAlive === false) {
+          const peerId = wsToPeerId.get(ws);
+          if (peerId) {
+            wsToPeerId.delete(ws);
+            const current = peers.get(peerId);
+            if (current && current.ws === ws) {
+              peers.delete(peerId);
+              pruned = true;
+            }
+          }
+          ws.terminate();
+          continue;
+        }
+        ws.isAlive = false;
+        ws.ping();
+      }
+      if (pruned) broadcastAllRelevantPeers();
+    }, 10000);
+
     wss.on('connection', (ws, req) => {
       const clientIp = extractClientIp(req);
+      const discoveryGroup = getDiscoveryGroup(clientIp);
+      ws.isAlive = true;
+      ws.on('pong', () => {
+        ws.isAlive = true;
+      });
 
       ws.on('message', (raw, isBinary) => {
+        ws.isAlive = true;
         if (isBinary) {
           const buf = Buffer.isBuffer(raw) ? raw : Buffer.from(raw);
           try {
@@ -120,6 +205,11 @@ function createServerAndListen() {
         }
 
         const type = String(msg.type || '');
+        if (type === 'ping') {
+          sendJson(ws, { type: 'pong' });
+          return;
+        }
+
         if (type === 'device:register') {
           const id = String(msg.id || '').trim();
           if (!id) return;
@@ -127,6 +217,7 @@ function createServerAndListen() {
             id,
             ws,
             clientIp,
+            discoveryGroup,
             alias: String(msg.alias || 'Windows PC').slice(0, 48),
             deviceModel: String(msg.deviceModel || 'Windows').slice(0, 48),
             deviceType:
@@ -143,9 +234,12 @@ function createServerAndListen() {
           sendJson(ws, {
             type: 'device:registered',
             id: peer.id,
-            clientIpMasked: clientIp.includes('.')
-              ? clientIp.split('.').slice(0, 3).join('.') + '.*'
-              : 'local',
+            clientIpMasked:
+              discoveryGroup === 'local-lan'
+                ? 'local-lan'
+                : clientIp.includes('.')
+                  ? clientIp.split('.').slice(0, 3).join('.') + '.*'
+                  : 'local',
           });
           broadcastAllRelevantPeers();
           return;
@@ -265,6 +359,7 @@ function createServerAndListen() {
       const addr = server.address();
       const port = typeof addr === 'object' && addr ? addr.port : 3000;
       httpServer = server;
+      startMulticastBeacon(port);
       resolve(port);
     };
 
@@ -285,6 +380,7 @@ async function createWindow() {
     minWidth: 390,
     minHeight: 620,
     title: 'NearSend',
+    icon: path.join(__dirname, '..', 'build', 'icon.png'),
     autoHideMenuBar: true,
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#090C10' : '#F6F8FA',
     webPreferences: {
@@ -303,6 +399,15 @@ async function createWindow() {
 app.whenReady().then(createWindow);
 
 app.on('window-all-closed', () => {
+  if (beaconTimer) clearInterval(beaconTimer);
+  if (heartbeatTimer) clearInterval(heartbeatTimer);
+  if (udpSocket) {
+    try {
+      udpSocket.close();
+    } catch {
+      // ignore
+    }
+  }
   if (httpServer) {
     httpServer.close();
   }
