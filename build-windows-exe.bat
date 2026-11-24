@@ -61,6 +61,12 @@ if not exist "node_modules\electron\package.json" (
 
 echo.
 echo [4/4] Packaging Windows .EXE (Portable + Installer)...
+call node scripts/ensure-icons.mjs
+if not exist "electron\icons\icon.ico" (
+  echo [ERROR] electron\icons\icon.ico is missing!
+  pause
+  exit /b 1
+)
 if exist "release\win-unpacked" rmdir /s /q "release\win-unpacked"
 call npx electron-builder --win --x64 --config electron-builder.json
 if errorlevel 1 (
